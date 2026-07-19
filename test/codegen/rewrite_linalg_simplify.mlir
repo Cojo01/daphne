@@ -47,6 +47,19 @@ func.func @trace_idiom_transposed(%x: !daphne.Matrix<3x4xf64>, %y: !daphne.Matri
     "daphne.return"(%s) : (f64) -> ()
 }
 
+// Negative case: X and Y have different element types, so the emitted ewMul
+// would be ill-typed. The rewrite fails closed and the matMul survives.
+// CHECK-LABEL: func.func @trace_idiom_elem_mismatch
+// CHECK: daphne.matMul
+// CHECK: daphne.diagVector
+func.func @trace_idiom_elem_mismatch(%x: !daphne.Matrix<3x4xf64>, %y: !daphne.Matrix<4x3xsi64>) -> f64 {
+    %false = "daphne.constant"() <{value = false}> : () -> i1
+    %p = "daphne.matMul"(%x, %y, %false, %false) : (!daphne.Matrix<3x4xf64>, !daphne.Matrix<4x3xsi64>, i1, i1) -> !daphne.Matrix<3x3xf64>
+    %d = "daphne.diagVector"(%p) : (!daphne.Matrix<3x3xf64>) -> !daphne.Matrix<3x1xf64>
+    %s = "daphne.sumAll"(%d) : (!daphne.Matrix<3x1xf64>) -> f64
+    "daphne.return"(%s) : (f64) -> ()
+}
+
 // Row scaling: diag(v) @ X with v an n x 1 column vector and X n x m is
 // rewritten to X * v: the matMul and the materialized n x n diagonal are
 // gone, replaced by a single ewMul broadcasting v down the rows of X. The
@@ -86,6 +99,18 @@ func.func @row_scale_transposed(%v: !daphne.Matrix<3x1xf64>, %x: !daphne.Matrix<
     %d = "daphne.diagMatrix"(%v) : (!daphne.Matrix<3x1xf64>) -> !daphne.Matrix<3x3xf64>
     %p = "daphne.matMul"(%d, %x, %true, %false) : (!daphne.Matrix<3x3xf64>, !daphne.Matrix<3x4xf64>, i1, i1) -> !daphne.Matrix<3x4xf64>
     "daphne.return"(%p) : (!daphne.Matrix<3x4xf64>) -> ()
+}
+
+// Negative case: v and X have different element types, so the emitted ewMul
+// would be ill-typed. The rewrite fails closed and the matMul survives.
+// CHECK-LABEL: func.func @row_scale_elem_mismatch
+// CHECK: daphne.diagMatrix
+// CHECK: daphne.matMul
+func.func @row_scale_elem_mismatch(%v: !daphne.Matrix<3x1xf64>, %x: !daphne.Matrix<3x4xsi64>) -> !daphne.Matrix<3x4xsi64> {
+    %false = "daphne.constant"() <{value = false}> : () -> i1
+    %d = "daphne.diagMatrix"(%v) : (!daphne.Matrix<3x1xf64>) -> !daphne.Matrix<3x3xf64>
+    %p = "daphne.matMul"(%d, %x, %false, %false) : (!daphne.Matrix<3x3xf64>, !daphne.Matrix<3x4xsi64>, i1, i1) -> !daphne.Matrix<3x4xsi64>
+    "daphne.return"(%p) : (!daphne.Matrix<3x4xsi64>) -> ()
 }
 
 // Column scaling: X @ diag(v) with X n x m and v an m x 1 column vector is
@@ -128,6 +153,18 @@ func.func @col_scale_transposed(%x: !daphne.Matrix<3x4xf64>, %v: !daphne.Matrix<
     %false = "daphne.constant"() <{value = false}> : () -> i1
     %d = "daphne.diagMatrix"(%v) : (!daphne.Matrix<4x1xf64>) -> !daphne.Matrix<4x4xf64>
     %p = "daphne.matMul"(%x, %d, %false, %true) : (!daphne.Matrix<3x4xf64>, !daphne.Matrix<4x4xf64>, i1, i1) -> !daphne.Matrix<3x4xf64>
+    "daphne.return"(%p) : (!daphne.Matrix<3x4xf64>) -> ()
+}
+
+// Negative case: X and v have different element types, so the emitted ewMul
+// would be ill-typed. The rewrite fails closed and the matMul survives.
+// CHECK-LABEL: func.func @col_scale_elem_mismatch
+// CHECK: daphne.diagMatrix
+// CHECK: daphne.matMul
+func.func @col_scale_elem_mismatch(%x: !daphne.Matrix<3x4xf64>, %v: !daphne.Matrix<4x1xsi64>) -> !daphne.Matrix<3x4xf64> {
+    %false = "daphne.constant"() <{value = false}> : () -> i1
+    %d = "daphne.diagMatrix"(%v) : (!daphne.Matrix<4x1xsi64>) -> !daphne.Matrix<4x4xsi64>
+    %p = "daphne.matMul"(%x, %d, %false, %false) : (!daphne.Matrix<3x4xf64>, !daphne.Matrix<4x4xsi64>, i1, i1) -> !daphne.Matrix<3x4xf64>
     "daphne.return"(%p) : (!daphne.Matrix<3x4xf64>) -> ()
 }
 
