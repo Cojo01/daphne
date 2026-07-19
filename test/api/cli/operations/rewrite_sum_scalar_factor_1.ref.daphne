@@ -3,11 +3,11 @@
 // matrix, so there is no sum(ewMul(scalar, matrix)) chain for the scalar-factor
 // rewrite to match, and the naive per-element scaling path is exercised instead.
 
-s = 2.5;
+s = 3;
 
-X = [ 1.0,  2.0,  3.0,  4.0,
-      5.0,  6.0,  7.0,  8.0,
-      9.0, 10.0, 11.0, 12.0];
+X = [ 1,  2,  3,  4,
+      5,  6,  7,  8,
+      9, 10, 11, 12];
 X = reshape(X, 3, 4);
 
 print(s * sum(X));

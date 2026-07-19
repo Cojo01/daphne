@@ -179,12 +179,24 @@ func.func @trace_idiom_resets_props(%x: !daphne.Matrix<3x3xf64:sp[3.000000e-01]>
 // Scalar-factor hoisting: sum(s * X) is rewritten to s * sum(X), the scalar
 // multiply moves out of the element-wise product to after the aggregate. The
 // aggregate now runs directly on the matrix X, and the surviving ewMul is a
-// scalar-by-scalar product (f64, f64) -> f64. Here s and X share the f64 element
-// type, so the accumulation type is unchanged and the rewrite fires.
+// scalar-by-scalar product (si64, si64) -> si64. The rewrite fires only over
+// integers, where regrouping the factor is exact; here s and X share si64.
 // CHECK-LABEL: func.func @sum_scalar_factor
-// CHECK: %[[S:.*]] = "daphne.sumAll"(%{{.*}}) : (!daphne.Matrix<3x4xf64>) -> f64
-// CHECK: "daphne.ewMul"(%{{.*}}, %[[S]]) : (f64, f64) -> f64
-func.func @sum_scalar_factor(%s: f64, %x: !daphne.Matrix<3x4xf64>) -> f64 {
+// CHECK: %[[S:.*]] = "daphne.sumAll"(%{{.*}}) : (!daphne.Matrix<3x4xsi64>) -> si64
+// CHECK: "daphne.ewMul"(%{{.*}}, %[[S]]) : (si64, si64) -> si64
+func.func @sum_scalar_factor(%s: si64, %x: !daphne.Matrix<3x4xsi64>) -> si64 {
+    %m = "daphne.ewMul"(%s, %x) : (si64, !daphne.Matrix<3x4xsi64>) -> !daphne.Matrix<3x4xsi64>
+    %r = "daphne.sumAll"(%m) : (!daphne.Matrix<3x4xsi64>) -> si64
+    "daphne.return"(%r) : (si64) -> ()
+}
+
+// Negative case: a float matrix. Regrouping the factor rounds differently over
+// floating point, so the rewrite fails closed and the ewMul over the matrix
+// survives.
+// CHECK-LABEL: func.func @sum_scalar_factor_float
+// CHECK: daphne.ewMul
+// CHECK: daphne.sumAll
+func.func @sum_scalar_factor_float(%s: f64, %x: !daphne.Matrix<3x4xf64>) -> f64 {
     %m = "daphne.ewMul"(%s, %x) : (f64, !daphne.Matrix<3x4xf64>) -> !daphne.Matrix<3x4xf64>
     %r = "daphne.sumAll"(%m) : (!daphne.Matrix<3x4xf64>) -> f64
     "daphne.return"(%r) : (f64) -> ()
@@ -208,12 +220,12 @@ func.func @sum_scalar_factor_promoting(%s: f64, %x: !daphne.Matrix<3x4xsi64>) ->
 // second arm for this operand order; the emitted ewMul(s, sum(X)) is identical to
 // the scalar-lhs case, so only the input order distinguishes the two.
 // CHECK-LABEL: func.func @sum_scalar_factor_scalar_rhs
-// CHECK: %[[S:.*]] = "daphne.sumAll"(%{{.*}}) : (!daphne.Matrix<3x4xf64>) -> f64
-// CHECK: "daphne.ewMul"(%{{.*}}, %[[S]]) : (f64, f64) -> f64
-func.func @sum_scalar_factor_scalar_rhs(%s: f64, %x: !daphne.Matrix<3x4xf64>) -> f64 {
-    %m = "daphne.ewMul"(%x, %s) : (!daphne.Matrix<3x4xf64>, f64) -> !daphne.Matrix<3x4xf64>
-    %r = "daphne.sumAll"(%m) : (!daphne.Matrix<3x4xf64>) -> f64
-    "daphne.return"(%r) : (f64) -> ()
+// CHECK: %[[S:.*]] = "daphne.sumAll"(%{{.*}}) : (!daphne.Matrix<3x4xsi64>) -> si64
+// CHECK: "daphne.ewMul"(%{{.*}}, %[[S]]) : (si64, si64) -> si64
+func.func @sum_scalar_factor_scalar_rhs(%s: si64, %x: !daphne.Matrix<3x4xsi64>) -> si64 {
+    %m = "daphne.ewMul"(%x, %s) : (!daphne.Matrix<3x4xsi64>, si64) -> !daphne.Matrix<3x4xsi64>
+    %r = "daphne.sumAll"(%m) : (!daphne.Matrix<3x4xsi64>) -> si64
+    "daphne.return"(%r) : (si64) -> ()
 }
 
 // Row-aggregate identity: a row-wise sum of an n x 1 matrix touches one element

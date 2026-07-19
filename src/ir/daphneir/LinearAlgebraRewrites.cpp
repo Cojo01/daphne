@@ -32,6 +32,16 @@ static Type getMatrixElementTypeOrNull(Value v) {
     return {};
 }
 
+// Returns true when `elem` is an integer element type wider than one bit, the
+// condition under which the arithmetic-regrouping rewrites are value-preserving:
+// integer add/mul are associative in Z/2^n, so regrouping them changes nothing,
+// whereas over floats it rounds differently. A one-bit integer is excluded too,
+// since the emitted EwMul cannot hold a coefficient of 2 (and rejects strings).
+static bool isRewritableIntElem(Type elem) {
+    auto intTy = llvm::dyn_cast<IntegerType>(elem);
+    return intTy && intTy.getWidth() > 1;
+}
+
 /**
  * @brief Rewrites the trace idiom `sum(diag(X @ Y))` to `sum(X * t(Y))`.
  *
@@ -271,8 +281,9 @@ struct ColScalePattern : public OpRewritePattern<daphne::MatMulOp> {
  *
  * The rewrite fails closed. It matches only an element-wise product of exactly
  * one scalar and one matrix operand (in either order, since EwMul is commutative
- * and its canonicalizer may swap a scalar lhs to the rhs), and only when the matrix's
- * element type equals the sum's result value type; see the per-guard comments.
+ * and its canonicalizer may swap a scalar lhs to the rhs), and only over integer
+ * matrices whose element type equals the sum's result type; see the per-guard
+ * comments.
  */
 struct SumScalarFactorPattern : public OpRewritePattern<daphne::AllAggSumOp> {
     using OpRewritePattern<daphne::AllAggSumOp>::OpRewritePattern;
@@ -298,16 +309,20 @@ struct SumScalarFactorPattern : public OpRewritePattern<daphne::AllAggSumOp> {
             return failure();
         }
 
-        // Soundness guard: the aggregate accumulates in its result value type, so
-        // sum(s * X) accumulates in the product's type while s * sum(X) accumulates
-        // in X's. If s promotes X (e.g. s:f64 over X:si64) those differ and the
-        // si64 accumulation can overflow, changing the result. Fire only when X's
-        // element type already equals the sum's result type, so it stays unchanged.
+        // Regrouping the factor out of the sum is only value-preserving over
+        // integers; the check rules out non-associative floats (and the
+        // non-numeric scalars hasScaType would otherwise admit).
         Type elemMatrix = getMatrixElementTypeOrNull(matrix);
+        if (!isRewritableIntElem(elemMatrix))
+            return failure();
+
+        // The aggregate accumulates in its result type, so sum(s * X) accumulates
+        // in the product's type while s * sum(X) accumulates in X's. Fire only
+        // when they match, else a narrower accumulation could overflow differently.
         if (elemMatrix != sumOp.getResult().getType())
             return failure();
 
-        // Give sum(X) X's element type (which the guard proved equals the result
+        // Give sum(X) X's element type (which the guards proved equals the result
         // type); an unknown type would never resolve, as inference has already run.
         // The outer s * sum(X) is a scalar-by-scalar product reusing that type.
         Value innerSum = rewriter.create<daphne::AllAggSumOp>(sumOp.getLoc(), elemMatrix, matrix);
@@ -413,15 +428,6 @@ static Value emitScaledMatrix(PatternRewriter &rewriter, Location loc, Value lea
     if (auto mt = llvm::dyn_cast<daphne::MatrixType>(resTy))
         resTy = mt.withSparsity(-1.0).withSymmetric(daphne::BoolOrUnknown::Unknown);
     return rewriter.create<daphne::EwMulOp>(loc, resTy, leaf, coeffVal);
-}
-
-// Returns true when `elem` admits the repeated-add-to-multiply rewrites: an
-// integer element type wider than one bit. EwAdd accepts strings and booleans,
-// but EwMul does not (string concatenation, and a bit cannot hold coefficient 2),
-// so the emitted ewMul would be ill-typed for those; fail closed.
-static bool isRewritableIntElem(Type elem) {
-    auto intTy = llvm::dyn_cast<IntegerType>(elem);
-    return intTy && intTy.getWidth() > 1;
 }
 
 /**

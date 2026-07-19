@@ -236,8 +236,9 @@ TEST_CASE("rewrite_col_scale", TAG_OPERATIONS) { compareDaphneToSelfRefSimple(di
 // before aggregating so the rewrite fires; the `.ref.daphne` script scales the
 // aggregated scalar instead, a chain the rewrite cannot match. Their outputs
 // must agree byte for byte, which guards that hoisting the factor preserves the
-// result (a dropped factor or wrong aggregate would change the printed value). A
-// float matrix is used so the rewrite's element-type guard admits it.
+// result (a dropped factor or wrong aggregate would change the printed value). An
+// integer matrix is used because the regrouping is exact only over integers, the
+// condition under which the rewrite fires.
 TEST_CASE("rewrite_sum_scalar_factor", TAG_OPERATIONS) {
     compareDaphneToSelfRefSimple(dirPath, "rewrite_sum_scalar_factor", 1);
 }
